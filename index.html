@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FFmpeg Mobile Compressor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Import FFmpeg.wasm -->
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/umd/ffmpeg.js"></script>
+    <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/umd/index.js"></script>
+    <style>
+        /* Animation for loading */
+        .loader {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #3498db;
+            border-radius: 50%;
+            width: 30px;
+            height: 30px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-gray-900 text-white min-h-screen flex flex-col items-center justify-center p-4">
+
+    <div class="w-full max-w-md bg-gray-800 p-6 rounded-xl shadow-lg border border-gray-700">
+        <h1 class="text-2xl font-bold mb-4 text-center text-blue-400">Video Compressor 🚀</h1>
+        <p class="text-xs text-gray-400 text-center mb-6">บีบอัดวิดีโอบนเครื่อง ไม่ต้องอัปโหลดขึ้น Server (Client-side)</p>
+
+        <!-- Step 1: Upload -->
+        <div class="mb-4">
+            <label class="block text-sm font-medium mb-2">1. เลือกไฟล์วิดีโอ (MP4/MOV)</label>
+            <input type="file" id="uploader" accept="video/*" class="block w-full text-sm text-gray-400 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-600 file:text-white hover:file:bg-blue-700 cursor-pointer"/>
+        </div>
+
+        <!-- Step 2: Settings -->
+        <div class="mb-6 grid grid-cols-2 gap-4">
+            <div>
+                <label class="block text-xs font-medium mb-1">คุณภาพ (CRF)</label>
+                <select id="quality" class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm">
+                    <option value="28">บีบอัดมาก (ไฟล์เล็ก)</option>
+                    <option value="23" selected>สมดุล (แนะนำ)</option>
+                    <option value="18">ชัดมาก (ไฟล์ใหญ่)</option>
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-medium mb-1">ความละเอียด</label>
+                <select id="resolution" class="w-full bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm">
+                    <option value="original" selected>เท่าเดิม</option>
+                    <option value="720">720p HD</option>
+                    <option value="480">480p SD</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Action Buttons -->
+        <button id="compressBtn" onclick="compress()" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-lg transition disabled:opacity-50 disabled:cursor-not-allowed mb-2 hidden">
+            เริ่มบีบอัด
+        </button>
+
+        <div id="statusMessage" class="text-center text-sm text-yellow-400 mt-2 min-h-[20px]"></div>
+
+        <!-- Progress Log -->
+        <div class="mt-4 bg-black rounded p-3 h-32 overflow-y-auto text-xs font-mono text-green-400 border border-gray-700" id="logs">
+            <p>> รอโหลดระบบ...</p>
+        </div>
+
+        <!-- Result -->
+        <div id="resultArea" class="hidden mt-6 text-center">
+            <p class="text-sm text-gray-300 mb-2">เสร็จสิ้น!</p>
+            <video id="outputVideo" controls class="w-full rounded mb-3 max-h-48 bg-black"></video>
+            <a id="downloadLink" class="inline-block bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-full font-bold shadow-lg shadow-blue-500/30">
+                ดาวน์โหลดวิดีโอ
+            </a>
+        </div>
+    </div>
+
+    <script>
+        const { FFmpeg } = FFmpegWASM;
+        const { fetchFile } = FFmpegUtil;
+        let ffmpeg = null;
+
+        const logArea = document.getElementById('logs');
+        const statusMsg = document.getElementById('statusMessage');
+        const compressBtn = document.getElementById('compressBtn');
+
+        const log = (message) => {
+            logArea.innerHTML += `<p>> ${message}</p>`;
+            logArea.scrollTop = logArea.scrollHeight;
+        };
+
+        // Initialize FFmpeg
+        const load = async () => {
+            try {
+                ffmpeg = new FFmpeg();
+                
+                // Log progress
+                ffmpeg.on('log', ({ message }) => {
+                    // Filter out too much noise, just show progress frames usually
+                    if(message.includes('frame=') || message.includes('size=')) {
+                        statusMsg.innerText = message;
+                    } else {
+                        log(message);
+                    }
+                });
+
+                // Load core with explicit CORS/WASM handling
+                // Using cloudflare or unpkg usually works if headers are set correctly
+                await ffmpeg.load({
+                    coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/umd/ffmpeg-core.js",
+                });
+
+                log("ระบบพร้อมทำงาน! กรุณาเลือกไฟล์");
+                document.getElementById('uploader').addEventListener('change', () => {
+                    compressBtn.classList.remove('hidden');
+                    compressBtn.disabled = false;
+                    log("โหลดไฟล์สำเร็จ กดปุ่ม 'เริ่มบีบอัด'");
+                });
+            } catch (e) {
+                log("Error loading FFmpeg: " + e.message);
+                log("ต้อง Deploy บน Cloudflare และตั้งค่า Headers ให้ถูกต้อง (COOP/COEP)");
+            }
+        };
+
+        const compress = async () => {
+            const uploader = document.getElementById('uploader');
+            const file = uploader.files[0];
+            if (!file) return;
+
+            compressBtn.disabled = true;
+            compressBtn.innerText = "กำลังประมวลผล... (ห้ามปิดหน้าจอ)";
+            document.getElementById('resultArea').classList.add('hidden');
+
+            const quality = document.getElementById('quality').value;
+            const resSelect = document.getElementById('resolution').value;
+            
+            // Generate command based on inputs
+            // -crf: Lower is better quality (18-28 range)
+            // -preset ultrafast: Fast encoding for mobile
+            let scaleFilter = "";
+            if (resSelect !== 'original') {
+                scaleFilter = `-vf scale=-2:${resSelect}`;
+            }
+
+            const inputName = "input.mp4";
+            const outputName = "output.mp4";
+
+            try {
+                // Write file to memory
+                await ffmpeg.writeFile(inputName, await fetchFile(file));
+
+                log("เริ่มกระบวนการบีบอัด...");
+                
+                // Build args
+                const args = ['-i', inputName, '-c:v', 'libx264', '-crf', quality, '-preset', 'ultrafast', '-c:a', 'aac', '-b:a', '128k'];
+                if (scaleFilter) {
+                    args.push(...scaleFilter.split(' '));
+                }
+                args.push(outputName);
+
+                await ffmpeg.exec(args);
+
+                log("บีบอัดเสร็จสิ้น! กำลังเตรียมไฟล์...");
+                
+                const data = await ffmpeg.readFile(outputName);
+                
+                const videoUrl = URL.createObjectURL(new Blob([data.buffer], { type: 'video/mp4' }));
+                
+                const videoPlayer = document.getElementById('outputVideo');
+                videoPlayer.src = videoUrl;
+                
+                const dlLink = document.getElementById('downloadLink');
+                dlLink.href = videoUrl;
+                dlLink.download = `compressed_${file.name}`;
+                
+                document.getElementById('resultArea').classList.remove('hidden');
+                compressBtn.innerText = "บีบอัดอีกครั้ง";
+                compressBtn.disabled = false;
+                log("เรียบร้อย! สามารถดาวน์โหลดได้ด้านล่าง");
+
+            } catch (e) {
+                log("เกิดข้อผิดพลาด: " + e.message);
+                compressBtn.disabled = false;
+                compressBtn.innerText = "ลองใหม่อีกครั้ง";
+            }
+        };
+
+        // Start loading on page load
+        load();
+    </script>
+</body>
+</html>
+
